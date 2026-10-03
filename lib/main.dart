@@ -30,6 +30,7 @@ class _BulbHomeState extends State<BulbHome> {
   double brightness = 100;
   Color currentColor = Colors.white;
   bool isLoading = true;
+  String statusText = 'Initializing...';
 
   @override
   void initState() {
@@ -38,52 +39,49 @@ class _BulbHomeState extends State<BulbHome> {
   }
 
   Future<void> _initBluetooth() async {
-    // 1. بلیو ٹوتھ آن ہے یا نہیں چیک کریں
-    bool? isEnabled = await FlutterBluetoothSerial.instance.isEnabled;
-    if (isEnabled == false) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please turn on Bluetooth from settings.')),
-        );
+    try {
+      // Pehle permissions - alag alag
+      await Permission.location.request();
+      await Permission.bluetoothScan.request();
+      await Permission.bluetoothConnect.request();
+      await Permission.bluetooth.request();
+
+      // Bluetooth ON hai?
+      bool? isEnabled = await FlutterBluetoothSerial.instance.isEnabled
+         ?.timeout(const Duration(seconds: 5), onTimeout: () => false);
+
+      if (isEnabled == false) {
+        if (!mounted) return;
+        setState(() => statusText = 'Please turn on Bluetooth');
+        await FlutterBluetoothSerial.instance.requestEnable();
       }
-    }
 
-    // 2. اجازتیں مانگیں
-    Map<Permission, PermissionStatus> statuses = await [
-      Permission.bluetooth,
-      Permission.bluetoothConnect,
-      Permission.bluetoothScan,
-      Permission.location,
-    ].request();
+      List<BluetoothDevice> bonded = await FlutterBluetoothSerial.instance
+         .getBondedDevices()
+         .timeout(const Duration(seconds: 10), onTimeout: () => []);
 
-    // 3. اگر اجازتیں نہ ملیں تو سیٹنگز کھولیں
-    if (statuses[Permission.location]!.isDenied ||
-        statuses[Permission.bluetoothConnect]!.isDenied ||
-        statuses[Permission.bluetoothScan]!.isDenied) {
-      
-      if (mounted) {
-        setState(() => isLoading = false);
-        await openAppSettings();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please allow Nearby Devices and Location in settings.')),
-        );
-      }
-      return;
-    }
-
-    // 4. اگر اجازت مل گئی تو ڈیوائسز ڈھونڈیں
-    List<BluetoothDevice> bonded = await FlutterBluetoothSerial.instance.getBondedDevices();
-    if (mounted) {
+      if (!mounted) return;
       setState(() {
         devices = bonded;
         isLoading = false;
       });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        isLoading = false;
+        statusText = 'Error: $e';
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Bluetooth Error: $e')),
+      );
     }
   }
 
   Future<void> _connect(BluetoothDevice device) async {
+    setState(() => statusText = 'Connecting to ${device.name}...');
     try {
-      connection = await BluetoothConnection.toAddress(device.address);
+      connection = await BluetoothConnection.toAddress(device.address)
+         .timeout(const Duration(seconds: 10));
       setState(() {});
     } catch (e) {
       if (mounted) {
@@ -93,8 +91,9 @@ class _BulbHomeState extends State<BulbHome> {
   }
 
   void _send(String cmd) {
-    if (connection != null && connection!.isConnected) {
+    if (connection!= null && connection!.isConnected) {
       connection!.output.add(Uint8List.fromList(cmd.codeUnits));
+      connection!.output.allSent;
     }
   }
 
@@ -103,15 +102,22 @@ class _BulbHomeState extends State<BulbHome> {
     return Scaffold(
       appBar: AppBar(title: const Text('Smart Bulb Controller'), centerTitle: true),
       body: isLoading
-          ? const Center(child: CircularProgressIndicator())
+         ? Center(child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const CircularProgressIndicator(),
+                const SizedBox(height: 16),
+                Text(statusText),
+              ],
+            ))
           : connection == null
-              ? devices.isEmpty
-                  ? const Center(child: Text('No paired devices found.\nPlease pair a Bluetooth device first.'))
+             ? devices.isEmpty
+                 ? Center(child: Text(statusText + '\n\nNo paired devices found.\nPlease pair bulb in phone Bluetooth settings first.', textAlign: TextAlign.center))
                   : ListView.builder(
                       itemCount: devices.length,
                       itemBuilder: (c, i) => ListTile(
                         leading: const Icon(Icons.lightbulb),
-                        title: Text(devices[i].name ?? 'Unknown'),
+                        title: Text(devices[i].name?? 'Unknown'),
                         subtitle: Text(devices[i].address),
                         onTap: () => _connect(devices[i]),
                       ),
@@ -119,19 +125,20 @@ class _BulbHomeState extends State<BulbHome> {
               : Column(
                   children: [
                     const SizedBox(height: 30),
-                    Icon(Icons.lightbulb, size: 120, color: isOn ? currentColor : Colors.grey),
+                    Icon(Icons.lightbulb, size: 120, color: isOn? currentColor : Colors.grey),
                     SwitchListTile(
                       title: const Text('Bulb ON/OFF'),
                       value: isOn,
                       onChanged: (v) {
                         setState(() => isOn = v);
-                        _send(v ? 'ON\n' : 'OFF\n');
+                        _send(v? 'ON\n' : 'OFF\n');
                       },
                     ),
                     Slider(
                       value: brightness,
                       min: 0,
                       max: 100,
+                      label: brightness.toInt().toString(),
                       onChanged: (v) {
                         setState(() => brightness = v);
                         _send('B${v.toInt()}\n');
@@ -139,22 +146,15 @@ class _BulbHomeState extends State<BulbHome> {
                     ),
                     Wrap(
                       spacing: 12,
-                      children: [
-                        Colors.red,
-                        Colors.green,
-                        Colors.blue,
-                        Colors.white,
-                        Colors.yellow,
-                        Colors.purple
-                      ]
-                          .map((c) => GestureDetector(
+                      children: [Colors.red, Colors.green, Colors.blue, Colors.white, Colors.yellow, Colors.purple]
+                         .map((c) => GestureDetector(
                                 onTap: () {
                                   setState(() => currentColor = c);
                                   _send('C${c.value}\n');
                                 },
                                 child: CircleAvatar(backgroundColor: c, radius: 22),
                               ))
-                          .toList(),
+                         .toList(),
                     ),
                     const SizedBox(height: 20),
                     ElevatedButton(
