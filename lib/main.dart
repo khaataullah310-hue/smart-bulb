@@ -1,129 +1,83 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart';
 import 'package:permission_handler/permission_handler.dart';
 
-void main() => runApp(SmartBulbApp());
+void main() => runApp(const SmartBulbApp());
 
 class SmartBulbApp extends StatelessWidget {
+  const SmartBulbApp({super.key});
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'Smart Bulb',
-      theme: ThemeData.dark(),
-      home: BulbControlPage(),
-    );
+    return MaterialApp(debugShowCheckedModeBanner: false, theme: ThemeData.dark(), home: const BulbHome());
   }
 }
 
-class BulbControlPage extends StatefulWidget {
+class BulbHome extends StatefulWidget {
+  const BulbHome({super.key});
   @override
-  _BulbControlPageState createState() => _BulbControlPageState();
+  State<BulbHome> createState() => _BulbHomeState();
 }
 
-class _BulbControlPageState extends State<BulbControlPage> {
+class _BulbHomeState extends State<BulbHome> {
   BluetoothConnection? connection;
-  bool isConnected = false;
-  bool isOn = false;
-  double brightness = 0.5;
-  Color selectedColor = Colors.white;
   List<BluetoothDevice> devices = [];
+  bool isOn = false;
+  double brightness = 100;
+  Color currentColor = Colors.white;
 
   @override
   void initState() {
     super.initState();
-    checkPermissions();
+    _getPermissions();
   }
 
-  Future<void> checkPermissions() async {
+  Future<void> _getPermissions() async {
     await [Permission.bluetooth, Permission.bluetoothConnect, Permission.bluetoothScan, Permission.location].request();
-    getDevices();
-  }
-
-  Future<void> getDevices() async {
-    List<BluetoothDevice> bonded = await FlutterBluetoothSerial.instance.getBondedDevices();
+    var bonded = await FlutterBluetoothSerial.instance.getBondedDevices();
     setState(() => devices = bonded);
   }
 
-  Future<void> connect(BluetoothDevice device) async {
+  Future<void> _connect(BluetoothDevice device) async {
     try {
       connection = await BluetoothConnection.toAddress(device.address);
-      setState(() => isConnected = true);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Connected to ${device.name}')));
-      connection!.input!.listen((data) {}).onDone(() {
-        setState(() => isConnected = false);
-      });
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to connect')));
+      setState(() {});
+    } catch(e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed: $e')));
     }
   }
 
-  void sendData(String data) {
-    if (connection != null && connection!.isConnected) {
-      connection!.output.add(Uint8List.fromList(data.codeUnits));
-      connection!.output.allSent;
+  void _send(String cmd) {
+    if (connection!= null && connection!.isConnected) {
+      connection!.output.add(Uint8List.fromList(cmd.codeUnits));
     }
-  }
-
-  void togglePower() {
-    setState(() => isOn = !isOn);
-    sendData(isOn ? "ON\n" : "OFF\n");
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('Smart Bulb - Kakar'), centerTitle: true),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            if (!isConnected) ...[
-              Text("Paired Devices:", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              Expanded(
-                child: ListView.builder(
-                  itemCount: devices.length,
-                  itemBuilder: (c, i) => ListTile(
-                    title: Text(devices[i].name ?? "Unknown"),
-                    subtitle: Text(devices[i].address),
-                    trailing: Icon(Icons.bluetooth),
-                    onTap: () => connect(devices[i]),
-                  ),
-                ),
-              ),
-            ] else ...[
-              Icon(Icons.lightbulb, size: 100, color: isOn ? selectedColor : Colors.grey),
-              SizedBox(height: 20),
-              ElevatedButton(
-                onPressed: togglePower,
-                child: Text(isOn ? "Turn OFF" : "Turn ON", style: TextStyle(fontSize: 20)),
-                style: ElevatedButton.styleFrom(minimumSize: Size(double.infinity, 60)),
-              ),
-              SizedBox(height: 20),
-              Text("Brightness: ${(brightness * 100).toInt()}%"),
-              Slider(value: brightness, onChanged: (v) {
-                setState(() => brightness = v);
-                sendData("B:${(v * 255).toInt()}\n");
-              }),
-              SizedBox(height: 20),
-              Text("Color"),
-              SizedBox(height: 10),
-              Wrap(
-                spacing: 10,
-                children: [Colors.red, Colors.green, Colors.blue, Colors.yellow, Colors.purple, Colors.white].map((c) => GestureDetector(
-                  onTap: () {
-                    setState(() => selectedColor = c);
-                    sendData("C:${c.value}\n");
-                  },
-                  child: Container(width: 50, height: 50, decoration: BoxDecoration(color: c, shape: BoxShape.circle, border: Border.all(color: Colors.white, width: selectedColor == c ? 3 : 0))),
-                )).toList(),
-              ),
-              SizedBox(height: 20),
-              ElevatedButton(onPressed: () { connection?.close(); setState(() => isConnected = false); }, child: Text("Disconnect")),
-            ]
-          ],
-        ),
-      ),
+      appBar: AppBar(title: const Text('Smart Bulb Controller'), centerTitle: true),
+      body: connection == null
+       ? ListView.builder(
+            itemCount: devices.length,
+            itemBuilder: (c,i) => ListTile(
+              leading: const Icon(Icons.lightbulb),
+              title: Text(devices[i].name??'Unknown'),
+              subtitle: Text(devices[i].address),
+              onTap: () => _connect(devices[i]),
+            ),
+          )
+        : Column(
+            children: [
+              const SizedBox(height:30),
+              Icon(Icons.lightbulb, size: 120, color: isOn? currentColor : Colors.grey),
+              SwitchListTile(title: const Text('Bulb ON/OFF'), value: isOn, onChanged: (v){setState(()=>isOn=v); _send(v?'ON\n':'OFF\n');}),
+              Slider(value: brightness, min:0, max:100, onChanged: (v){setState(()=>brightness=v); _send('B${v.toInt()}\n');}),
+              Wrap(spacing:12, children: [Colors.red, Colors.green, Colors.blue, Colors.white, Colors.yellow, Colors.purple].map((c)=>GestureDetector(onTap: (){setState(()=>currentColor=c); _send('C${c.value}\n');}, child: CircleAvatar(backgroundColor: c, radius:22))).toList()),
+              ElevatedButton(onPressed: (){connection?.close(); setState(()=>connection=null);}, child: const Text('Disconnect'))
+            ],
+          ),
     );
+  
   }
 }
