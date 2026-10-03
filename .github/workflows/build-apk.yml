@@ -12,12 +12,9 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.22.0'
-      - name: Create project files
-        run: flutter create. --project-name smart_bulb
-      - name: Get packages
-        run: flutter pub get
-      - name: Build APK
-        run: flutter build apk --release
+      - run: flutter create. --project-name smart_bulb
+      - run: flutter pub get
+      - run: flutter build apk --release
       - uses: actions/upload-artifact@v4
         with:
           name: Smart-Bulb-APK
