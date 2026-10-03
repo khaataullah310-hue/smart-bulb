@@ -15,6 +15,10 @@ jobs:
           cache: true
       - run: flutter create . --project-name smart_bulb --platforms android
       - run: flutter pub get
+      # یہاں اجازتیں شامل کرنے والا سٹیپ لگا دیں
+      - name: Add Bluetooth Permissions
+        run: |
+          sed -i '/<application>/i \    <uses-permission android:name="android.permission.BLUETOOTH" />\n    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />\n    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />\n    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />\n    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />' android/app/src/main/AndroidManifest.xml
       - run: flutter build apk --release
       - uses: actions/upload-artifact@v4
         with:
