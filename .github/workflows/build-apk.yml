@@ -13,10 +13,10 @@ jobs:
         with:
           flutter-version: '3.22.0'
           cache: true
+      - run: flutter create. --project-name smart_bulb --platforms android
       - run: flutter pub get
       - run: flutter build apk --release
       - uses: actions/upload-artifact@v4
         with:
           name: Smart-Bulb-APK
           path: build/app/outputs/flutter-apk/app-release.apk
-          
